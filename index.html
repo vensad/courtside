@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="CourtSide" />
+  <meta name="theme-color" content="#0f172a" />
+  <meta name="description" content="Pickleball scorekeeper and round robin" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png" />
+  <title>CourtSide</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <header id="header" class="header">
+      <div class="header-left">
+        <button id="btn-back" class="icon-btn hidden" aria-label="Back">←</button>
+        <h1 id="header-title">CourtSide</h1>
+      </div>
+      <div class="header-right">
+        <button id="btn-players" class="icon-btn" title="Players">👥</button>
+        <button id="btn-settings" class="icon-btn" title="Settings">⚙️</button>
+      </div>
+    </header>
+    <main id="main">
+      <section id="screen-home" class="screen active">
+        <div class="hero">
+          <div class="logo">🏓</div>
+          <h2>CourtSide</h2>
+          <p class="tagline">Scorekeeper + Round Robin<br>like Side Out, with player rotations</p>
+        </div>
+        <div class="home-actions">
+          <button class="btn btn-primary btn-lg" id="btn-new-rr"><span class="btn-icon">🔄</span> New Round Robin</button>
+          <button class="btn btn-secondary btn-lg" id="btn-quick-start"><span class="btn-icon">🚀</span> Quick Start (random names)</button>
+          <button class="btn btn-secondary btn-lg" id="btn-quick-match"><span class="btn-icon">⚡</span> Quick Match (named)</button>
+        </div>
+        <div id="active-session" class="card hidden">
+          <h3>Active Session</h3>
+          <div id="active-session-info"></div>
+          <button class="btn btn-primary" id="btn-resume-session">Resume</button>
+        </div>
+        <div class="card">
+          <h3>Recent Standings</h3>
+          <div id="home-standings" class="standings-preview"><p class="muted">No sessions yet. Start a Round Robin!</p></div>
+        </div>
+      </section>
+      <section id="screen-players" class="screen">
+        <div class="card">
+          <h3>Players</h3>
+          <div class="add-player-box">
+            <input type="text" id="new-player-name" placeholder="Type player name…" maxlength="20" />
+            <button class="btn btn-primary btn-lg full" id="btn-add-player">＋ Add Player</button>
+          </div>
+          <ul id="player-list" class="player-list"></ul>
+          <p class="muted small" id="player-count">0 players</p>
+        </div>
+        <div class="card">
+          <h3>Saved Groups</h3>
+          <p class="muted small" style="margin-bottom:10px">Save the current player list as a named group to reuse later.</p>
+          <div class="add-player-row">
+            <input type="text" id="group-name-input" placeholder="Group name (e.g. Tuesday Crew)" maxlength="30" />
+            <button class="btn btn-primary" id="btn-save-group">Save</button>
+          </div>
+          <ul id="group-list" class="player-list"></ul>
+          <p class="muted small" id="group-count">0 groups</p>
+        </div>
+      </section>
+      <section id="screen-setup" class="screen">
+        <div class="card">
+          <h3>Round Robin Setup</h3>
+          <label class="label">Participating Players</label>
+          <div class="setup-add-row">
+            <input type="text" id="setup-new-player" placeholder="Quick add player name…" maxlength="20" />
+            <button class="btn btn-primary" id="btn-setup-add-player">＋</button>
+          </div>
+          <div id="setup-player-select" class="player-select-grid"></div>
+          <label class="label">Format</label>
+          <div class="toggle-group" id="format-toggles">
+            <button class="toggle-btn active" data-format="rotating">Rotating Partners</button>
+            <button class="toggle-btn" data-format="fixed">Fixed Teams</button>
+            <button class="toggle-btn" data-format="winners">Winners Stay</button>
+          </div>
+          <label class="label">Scoring</label>
+          <div class="toggle-group" id="scoring-toggles">
+            <button class="toggle-btn active" data-scoring="sideout">Side-Out</button>
+            <button class="toggle-btn" data-scoring="rally">Rally</button>
+          </div>
+          <div class="form-row">
+            <div><label class="label">Play to</label><select id="points-to"><option value="11" selected>11</option><option value="15">15</option><option value="21">21</option></select></div>
+            <div><label class="label">Win by</label><select id="win-by"><option value="2" selected>2</option><option value="1">1</option></select></div>
+            <div><label class="label">Courts</label><select id="num-courts"><option value="1">1</option><option value="2" selected>2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option></select></div>
+          </div>
+          <button class="btn btn-primary btn-lg full" id="btn-start-rr" disabled>Start Round Robin</button>
+        </div>
+      </section>
+      <section id="screen-session" class="screen">
+        <div class="session-header">
+          <div><span class="badge" id="session-round">Round 1</span> <span class="badge badge-outline" id="session-format">Rotating</span></div>
+          <button class="btn btn-sm" id="btn-next-round">Next Round →</button>
+        </div>
+        <div id="matchups" class="matchups"></div>
+        <div class="card"><h3>Live Standings</h3><div id="session-standings" class="standings-table"></div></div>
+        <div class="session-actions"><button class="btn btn-secondary" id="btn-end-session">End Session</button></div>
+      </section>
+      <section id="screen-scoring" class="screen">
+        <div class="scoring-header">
+          <div class="match-label" id="scoring-match-label">Court 1</div>
+          <div class="view-toggle">
+            <button class="view-btn active" id="btn-view-2d" data-view="2d">2D</button>
+            <button class="view-btn" id="btn-view-3d" data-view="3d">3D</button>
+          </div>
+          <button class="icon-btn" id="btn-scoring-close">✕</button>
+        </div>
+        <div class="court-stage" id="court-stage">
+          <div class="court-apron">
+          <div class="court-view court-2d" id="court-view">
+            <div class="court-side court-far" id="tap-side-B" data-team="B">
+              <div class="service-area">
+                <div class="court-pos pos-left" id="pos-far-left"><div class="player-chip-court"><span class="pos-name" id="name-far-left">—</span><span class="pos-badge" id="badge-far-left"></span></div></div>
+                <div class="svc-center-line"></div>
+                <div class="court-pos pos-right" id="pos-far-right"><div class="player-chip-court"><span class="pos-name" id="name-far-right">—</span><span class="pos-badge" id="badge-far-right"></span></div></div>
+              </div>
+              <div class="kitchen kitchen-far" aria-hidden="true"></div>
+            </div>
+            <div class="court-net-area">
+              <div class="net-post net-post-l"></div>
+              <div class="court-net"><div class="net-tape top"></div><div class="net-mesh"></div><div class="net-band-bot"></div></div>
+              <div class="net-post net-post-r"></div>
+              <div class="center-score" id="classic-score">0-0-2</div>
+            </div>
+            <div class="court-side court-near" id="tap-side-A" data-team="A">
+              <div class="kitchen kitchen-near" aria-hidden="true"></div>
+              <div class="service-area">
+                <div class="court-pos pos-left" id="pos-near-left"><div class="player-chip-court"><span class="pos-name" id="name-near-left">—</span><span class="pos-badge" id="badge-near-left"></span></div></div>
+                <div class="svc-center-line"></div>
+                <div class="court-pos pos-right" id="pos-near-right"><div class="player-chip-court"><span class="pos-name" id="name-near-right">—</span><span class="pos-badge" id="badge-near-right"></span></div></div>
+              </div>
+            </div>
+          </div>
+          </div>
+        </div>
+        <div class="score-hint" id="scoring-help">Tap serving side = point · Other side = side out</div>
+        <div class="scoring-controls">
+          <button class="btn btn-secondary" id="btn-undo">Undo</button>
+          <button class="btn btn-secondary" id="btn-switch-server">Switch Serve</button>
+          <button class="btn btn-secondary" id="btn-swap-scoring">Swap</button>
+          <button class="btn btn-danger" id="btn-end-game">End</button>
+        </div>
+      </section>
+      <section id="screen-quickstart" class="screen">
+        <div class="card">
+          <h3>Quick Start</h3>
+          <p class="muted">No names needed — random player labels are created for you.</p>
+          <label class="label">Number of players</label>
+          <div class="player-count-grid" id="qs-count-grid">
+            <button class="count-btn" data-n="4">4</button><button class="count-btn active" data-n="8">8</button><button class="count-btn" data-n="12">12</button><button class="count-btn" data-n="16">16</button><button class="count-btn" data-n="20">20</button><button class="count-btn" data-n="24">24</button>
+          </div>
+          <div class="form-row" style="margin-top:12px">
+            <div><label class="label">Custom count</label><input type="number" id="qs-custom-count" min="4" max="32" placeholder="4–32" /></div>
+            <div><label class="label">Courts</label><select id="qs-courts"><option value="1">1</option><option value="2" selected>2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option></select></div>
+          </div>
+          <label class="label">Format</label>
+          <div class="toggle-group" id="qs-format-toggles">
+            <button class="toggle-btn active" data-format="rotating">Round Robin</button><button class="toggle-btn" data-format="winners">Winners Stay</button>
+          </div>
+          <label class="label">Scoring</label>
+          <div class="toggle-group" id="qs-scoring-toggles">
+            <button class="toggle-btn active" data-scoring="sideout">Side-Out</button><button class="toggle-btn" data-scoring="rally">Rally</button>
+          </div>
+          <div class="form-row">
+            <div><label class="label">Play to</label><select id="qs-points-to"><option value="11" selected>11</option><option value="15">15</option><option value="21">21</option></select></div>
+            <div><label class="label">Win by</label><select id="qs-win-by"><option value="2" selected>2</option><option value="1">1</option></select></div>
+          </div>
+          <button class="btn btn-primary btn-lg full" id="btn-qs-go">Start with Random Players</button>
+        </div>
+      </section>
+      <section id="screen-quick" class="screen">
+        <div class="card">
+          <h3>Quick Match</h3>
+          <p class="muted">Score a single game without full round robin.</p>
+          <label class="label">Team A</label>
+          <div class="quick-team" id="quick-team-a"><select class="player-select" data-slot="a1"></select><select class="player-select" data-slot="a2"></select></div>
+          <label class="label">Team B</label>
+          <div class="quick-team" id="quick-team-b"><select class="player-select" data-slot="b1"></select><select class="player-select" data-slot="b2"></select></div>
+          <label class="label">Scoring</label>
+          <div class="toggle-group" id="quick-scoring-toggles">
+            <button class="toggle-btn active" data-scoring="sideout">Side-Out</button><button class="toggle-btn" data-scoring="rally">Rally</button>
+          </div>
+          <div class="form-row">
+            <div><label class="label">Play to</label><select id="quick-points-to"><option value="11" selected>11</option><option value="15">15</option><option value="21">21</option></select></div>
+            <div><label class="label">Win by</label><select id="quick-win-by"><option value="2" selected>2</option><option value="1">1</option></select></div>
+          </div>
+          <button class="btn btn-primary btn-lg full" id="btn-start-quick">Start Scoring</button>
+        </div>
+      </section>
+    </main>
+    <div id="swap-modal" class="modal hidden">
+      <div class="modal-backdrop" id="swap-backdrop"></div>
+      <div class="modal-content">
+        <div class="modal-header"><h3>Swap / Edit Players</h3><button class="icon-btn" id="btn-swap-close">✕</button></div>
+        <p class="muted small" id="swap-match-label">Court 1</p>
+        <div class="swap-slots">
+          <div class="swap-team"><div class="swap-team-label">Team A</div><select id="swap-a1" class="swap-select"></select><select id="swap-a2" class="swap-select"></select></div>
+          <div class="swap-team"><div class="swap-team-label">Team B</div><select id="swap-b1" class="swap-select"></select><select id="swap-b2" class="swap-select"></select></div>
+        </div>
+        <p class="muted small" style="margin-top:12px">Choose any players (including sitting). Duplicates not allowed.</p>
+        <button class="btn btn-primary btn-lg full" id="btn-swap-save">Save Changes</button>
+      </div>
+    </div>
+    <div id="toast" class="toast hidden"></div>
+  </div>
+  <script src="app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').catch(() => {});
+      });
+    }
+  </script>
+</body>
+</html>
