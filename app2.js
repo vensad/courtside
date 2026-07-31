@@ -47,6 +47,14 @@ function renderSession() {
       '<button class="btn-swap" data-id="' + m.id + '">⇄ Swap</button></div>';
     box.appendChild(card);
   });
+  const waiting = state.session.waiting || [];
+  if (waiting.length) {
+    const wcard = document.createElement('div');
+    wcard.className = 'card';
+    wcard.innerHTML = '<h3>Standby (' + waiting.length + ')</h3><p class="muted small">These players get priority next round.</p><p style="margin-top:8px;font-weight:600">' +
+      waiting.map(p => escapeHtml(p.name)).join(' · ') + '</p>';
+    box.appendChild(wcard);
+  }
   box.querySelectorAll('.score-open').forEach(btn => btn.addEventListener('click', () => openMatch(btn.dataset.id)));
   box.querySelectorAll('.btn-swap').forEach(btn => btn.addEventListener('click', () => openSwapModal(btn.dataset.id)));
   renderStandings('session-standings');
@@ -110,17 +118,17 @@ function startRoundRobin() {
   if (f) format = f.dataset.format;
   const s = document.querySelector('#scoring-toggles .toggle-btn.active');
   if (s) scoring = s.dataset.scoring;
-  const partnerHistory = {};
-  const matches = generateRound(players, courts, partnerHistory);
+  const { matches, waiting } = generateRoundPreferStandby(players, courts, []);
   state.session = {
     id: uid(), format, scoring, pointsTo, winBy, courts,
     players: players.map(p => ({ id: p.id, name: p.name })),
-    round: 1, matches, partnerHistory, stats: {}, history: [], waiting: []
+    round: 1, matches, partnerHistory: {}, stats: {}, history: [],
+    waiting: waiting.map(p => ({ id: p.id, name: p.name }))
   };
   players.forEach(p => { state.session.stats[p.id] = { wins:0, losses:0, pf:0, pa:0 }; });
   saveState();
   showScreen('session');
-  toast('Round Robin started');
+  toast('Started' + (waiting.length ? ' · ' + waiting.length + ' on standby' : ''));
 }
 
 function nextRound() {
@@ -128,42 +136,64 @@ function nextRound() {
   const unfinished = state.session.matches.filter(m => !m.completed);
   if (unfinished.length && !confirm('Some matches not finished. Continue?')) return;
   const players = state.session.players.map(p => ({ id: p.id, name: p.name }));
+  // Prefer players who were on standby last round
+  const preferred = (state.session.waiting || []).map(p => p.id);
   state.session.history.push({ round: state.session.round, matches: JSON.parse(JSON.stringify(state.session.matches)) });
   state.session.round += 1;
-  state.session.matches = generateRound(players, state.session.courts, state.session.partnerHistory || {});
+  const { matches, waiting } = generateRoundPreferStandby(players, state.session.courts, preferred);
+  state.session.matches = matches;
+  state.session.waiting = waiting.map(p => ({ id: p.id, name: p.name }));
   saveState();
   renderSession();
-  toast('Round ' + state.session.round);
+  toast('Round ' + state.session.round + (waiting.length ? ' · ' + waiting.length + ' standby' : ''));
 }
 
 function nextRoundWinnersStay() {
   if (!state.session || state.session.format !== 'winners') { nextRound(); return; }
+  const unfinished = state.session.matches.filter(m => !m.completed);
+  if (unfinished.length && !confirm('Some matches not finished. Continue?')) return;
+
   const newMatches = [];
-  let stillWaiting = [...(state.session.waiting || [])];
+  // Prefer standby first when filling open slots
+  let standby = shuffle([...(state.session.waiting || [])]);
+  const outgoing = []; // losers go to standby
   let courtNum = 1;
+
   state.session.matches.forEach(m => {
     if (!m.completed) return;
     const aWon = m.scoreA > m.scoreB;
     const winners = aWon ? m.teamA : m.teamB;
     const losers = aWon ? m.teamB : m.teamA;
-    const pool = shuffle([...losers, ...stillWaiting]);
-    const f1 = pool.shift(), f2 = pool.shift();
-    stillWaiting = pool;
+    outgoing.push(...losers);
+
+    // Fill from standby first, then from losers pool if needed
+    const take = () => {
+      if (standby.length) return standby.shift();
+      if (outgoing.length) return outgoing.shift();
+      return null;
+    };
+    const f1 = take();
+    const f2 = take();
     if (!f1 || !f2) return;
-    newMatches.push({
-      id: uid(), court: courtNum++,
-      teamA: [winners[0], f1], teamB: [winners[1], f2],
-      scoreA: 0, scoreB: 0, completed: false, servingTeam: 'A', serverNumber: 2
-    });
+
+    // Split winners onto opposite teams
+    newMatches.push(makeMatch(courtNum++, winners[0], f1, winners[1], f2));
   });
+
+  // Anyone not placed becomes new standby
+  const playing = playingIdsFromMatches(newMatches);
+  const all = state.session.players.map(p => ({ id: p.id, name: p.name }));
+  const stillWaiting = all.filter(p => !playing.has(p.id));
+
   if (!newMatches.length) { toast('Need completed matches'); return; }
+
   state.session.history.push({ round: state.session.round, matches: JSON.parse(JSON.stringify(state.session.matches)) });
   state.session.round += 1;
   state.session.matches = newMatches;
   state.session.waiting = stillWaiting;
   saveState();
   renderSession();
-  toast('Winners Stay · Round ' + state.session.round);
+  toast('Winners Stay · Round ' + state.session.round + (stillWaiting.length ? ' · ' + stillWaiting.length + ' standby' : ''));
 }
 
 function endSession() {
@@ -176,7 +206,7 @@ function endSession() {
 
 function renderQuick() {
   const players = state.players;
-  document.querySelectorAll('#quick-team-a select, #quick-team-b select').forEach((sel, i) => {
+  document.querySelectorAll('#quick-team-a select, #quick-team-b select').forEach((sel) => {
     sel.innerHTML = '<option value="">—</option>' + players.map(p => '<option value="' + p.id + '">' + escapeHtml(p.name) + '</option>').join('');
   });
 }
@@ -200,11 +230,7 @@ function startQuickMatch() {
     round: 1, matches: [], partnerHistory: {}, stats: {}, history: [], waiting: []
   };
   [a1,a2,b1,b2].forEach(p => { state.session.stats[p.id] = { wins:0, losses:0, pf:0, pa:0 }; });
-  const m = {
-    id: uid(), court: 1,
-    teamA: [a1, a2], teamB: [b1, b2],
-    scoreA: 0, scoreB: 0, completed: false, servingTeam: 'A', serverNumber: 2, history: []
-  };
+  const m = makeMatch(1, a1, a2, b1, b2);
   state.session.matches = [m];
   state.currentMatch = m;
   saveState();
@@ -217,12 +243,23 @@ function openSwapModal(matchId) {
   const m = state.session && state.session.matches.find(x => x.id === matchId);
   if (!m) return;
   state._swapMatchId = matchId;
-  const all = state.session.players || state.players;
+  // Include standby so you can swap them in
+  const onCourt = [];
+  state.session.matches.forEach(mm => {
+    mm.teamA.forEach(p => onCourt.push(p));
+    mm.teamB.forEach(p => onCourt.push(p));
+  });
+  const wait = state.session.waiting || [];
+  const seen = new Set();
+  const all = [];
+  [...onCourt, ...wait, ...(state.session.players || [])].forEach(p => {
+    if (p && !seen.has(p.id)) { seen.add(p.id); all.push(p); }
+  });
   ['swap-a1','swap-a2','swap-b1','swap-b2'].forEach((id, i) => {
     const sel = document.getElementById(id);
     if (!sel) return;
     const cur = i < 2 ? m.teamA[i] : m.teamB[i-2];
-    sel.innerHTML = all.map(p => '<option value="' + p.id + '"' + (cur && cur.id === p.id ? ' selected' : '') + '>' + escapeHtml(p.name) + '</option>').join('');
+    sel.innerHTML = all.map(p => '<option value="' + p.id + '"' + (cur && cur.id === p.id ? ' selected' : '') + '>' + escapeHtml(p.name) + (wait.some(w => w.id === p.id) ? ' (standby)' : '') + '</option>').join('');
   });
   document.getElementById('swap-modal').classList.remove('hidden');
 }
@@ -230,12 +267,25 @@ function openSwapModal(matchId) {
 function saveSwap() {
   const m = state.session.matches.find(x => x.id === state._swapMatchId);
   if (!m) return;
-  const pick = id => (state.session.players || state.players).find(p => p.id === document.getElementById(id).value);
+  const roster = [];
+  const seen = new Set();
+  [...(state.session.players || []), ...(state.session.waiting || [])].forEach(p => {
+    if (!seen.has(p.id)) { seen.add(p.id); roster.push(p); }
+  });
+  state.session.matches.forEach(mm => {
+    mm.teamA.concat(mm.teamB).forEach(p => {
+      if (!seen.has(p.id)) { seen.add(p.id); roster.push(p); }
+    });
+  });
+  const pick = id => roster.find(p => p.id === document.getElementById(id).value);
   const a1 = pick('swap-a1'), a2 = pick('swap-a2'), b1 = pick('swap-b1'), b2 = pick('swap-b2');
   if (!a1||!a2||!b1||!b2) { toast('Select 4 players'); return; }
   const ids = [a1.id,a2.id,b1.id,b2.id];
   if (new Set(ids).size < 4) { toast('No duplicates'); return; }
   m.teamA = [a1,a2]; m.teamB = [b1,b2];
+  // Refresh waiting = session players not on any court
+  const playing = playingIdsFromMatches(state.session.matches);
+  state.session.waiting = (state.session.players || []).filter(p => !playing.has(p.id));
   saveState();
   document.getElementById('swap-modal').classList.add('hidden');
   if (state.currentMatch && state.currentMatch.id === m.id) updateCourtView(m);
