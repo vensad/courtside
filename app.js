@@ -35,12 +35,11 @@ function loadState() {
 
 function saveState() {
   try {
-    const toSave = {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
       players: state.players,
       groups: state.groups,
       session: state.session
-    };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+    }));
   } catch (e) {}
 }
 
@@ -58,7 +57,7 @@ function toast(msg) {
 }
 
 function escapeHtml(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return String(s).replace(/&/g,'&').replace(/</g,'<').replace(/>/g,'>').replace(/"/g,'"');
 }
 
 function showScreen(name) {
@@ -69,13 +68,8 @@ function showScreen(name) {
   const back = document.getElementById('btn-back');
   if (back) back.classList.toggle('hidden', name === 'home');
   const titles = {
-    home: 'CourtSide',
-    players: 'Players',
-    setup: 'Round Robin Setup',
-    session: 'Session',
-    scoring: 'Scoring',
-    quick: 'Quick Match',
-    quickstart: 'Quick Start'
+    home: 'CourtSide', players: 'Players', setup: 'Round Robin Setup',
+    session: 'Session', scoring: 'Scoring', quick: 'Quick Match', quickstart: 'Quick Start'
   };
   const ht = document.getElementById('header-title');
   if (ht) ht.textContent = titles[name] || 'CourtSide';
@@ -157,8 +151,7 @@ function saveGroup() {
     savedAt: Date.now()
   };
   if (existing) {
-    const idx = state.groups.findIndex(g => g.id === existing.id);
-    state.groups[idx] = payload;
+    state.groups[state.groups.findIndex(g => g.id === existing.id)] = payload;
     toast('Updated group "' + name + '"');
   } else {
     state.groups.push(payload);
@@ -195,8 +188,7 @@ function renderGroups() {
   if (!list) return;
   list.innerHTML = '';
   if (!state.groups.length) { if (count) count.textContent = '0 groups'; return; }
-  const sorted = state.groups.slice().sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
-  sorted.forEach(g => {
+  state.groups.slice().sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0)).forEach(g => {
     const n = (g.players || []).length;
     const li = document.createElement('li');
     li.innerHTML = '<div><strong>' + escapeHtml(g.name) + '</strong><br><span class="muted small">' + n + ' players</span></div><div class="group-actions"><button class="load-btn" data-id="' + g.id + '">Load</button><button class="del-btn" data-id="' + g.id + '">✕</button></div>';
@@ -216,24 +208,50 @@ function shuffle(arr) {
   return a;
 }
 
-function generateRound(players, courts, partnerHistory) {
-  const pool = shuffle(players);
+/** Prefer standby/waiting players first, then everyone else. */
+function orderPreferStandby(allPlayers, waitingIds) {
+  const waitSet = new Set(waitingIds || []);
+  const standby = shuffle(allPlayers.filter(p => waitSet.has(p.id)));
+  const others = shuffle(allPlayers.filter(p => !waitSet.has(p.id)));
+  return standby.concat(others);
+}
+
+function playingIdsFromMatches(matches) {
+  const ids = new Set();
+  (matches || []).forEach(m => {
+    (m.teamA || []).forEach(p => ids.add(p.id));
+    (m.teamB || []).forEach(p => ids.add(p.id));
+  });
+  return ids;
+}
+
+function makeMatch(court, a1, a2, b1, b2) {
+  return {
+    id: uid(),
+    court,
+    teamA: [a1, a2],
+    teamB: [b1, b2],
+    scoreA: 0,
+    scoreB: 0,
+    completed: false,
+    servingTeam: 'A',
+    serverNumber: 2,
+    history: []
+  };
+}
+
+/** Build matches; prefers players in preferredIds (standby). Returns { matches, waiting }. */
+function generateRoundPreferStandby(players, courts, preferredIds) {
+  const ordered = orderPreferStandby(players, preferredIds);
+  const slots = Math.min(courts, Math.floor(ordered.length / 4)) * 4;
+  const onCourt = ordered.slice(0, slots);
+  const waiting = ordered.slice(slots);
   const matches = [];
   let court = 1;
-  for (let i = 0; i + 3 < pool.length && court <= courts; i += 4) {
-    matches.push({
-      id: uid(),
-      court: court++,
-      teamA: [pool[i], pool[i+1]],
-      teamB: [pool[i+2], pool[i+3]],
-      scoreA: 0,
-      scoreB: 0,
-      completed: false,
-      servingTeam: 'A',
-      serverNumber: 2
-    });
+  for (let i = 0; i + 3 < onCourt.length; i += 4) {
+    matches.push(makeMatch(court++, onCourt[i], onCourt[i+1], onCourt[i+2], onCourt[i+3]));
   }
-  return matches;
+  return { matches, waiting };
 }
 
 function startQuickStart() {
@@ -253,22 +271,17 @@ function startQuickStart() {
   if (scBtn) scoring = scBtn.dataset.scoring;
   const players = createRandomPlayers(count);
   players.forEach(p => { if (!state.players.some(x => x.id === p.id)) state.players.push(p); });
-  const partnerHistory = {};
-  const firstRound = generateRound(players, courts, partnerHistory);
+  const { matches, waiting } = generateRoundPreferStandby(players, courts, []);
   state.session = {
     id: uid(), format, scoring, pointsTo, winBy, courts,
     players: players.map(p => ({ id: p.id, name: p.name })),
-    round: 1, matches: firstRound, partnerHistory, stats: {}, history: [], waiting: []
+    round: 1, matches, partnerHistory: {}, stats: {}, history: [],
+    waiting: waiting.map(p => ({ id: p.id, name: p.name }))
   };
   players.forEach(p => { state.session.stats[p.id] = { wins: 0, losses: 0, pf: 0, pa: 0 }; });
-  if (format === 'winners') {
-    const playing = new Set();
-    firstRound.forEach(m => { m.teamA.forEach(p => playing.add(p.id)); m.teamB.forEach(p => playing.add(p.id)); });
-    state.session.waiting = players.filter(p => !playing.has(p.id)).map(p => ({ id: p.id, name: p.name }));
-  }
   saveState();
   showScreen('session');
-  toast('Quick Start · ' + count + ' players');
+  toast('Quick Start · ' + count + ' players' + (waiting.length ? ' · ' + waiting.length + ' on standby' : ''));
 }
 
 function addPoint(team) {
@@ -285,9 +298,8 @@ function addPoint(team) {
     if (team === m.servingTeam) {
       if (team === 'A') m.scoreA++; else m.scoreB++;
     } else {
-      if (m.serverNumber === 1) {
-        m.serverNumber = 2;
-      } else {
+      if (m.serverNumber === 1) m.serverNumber = 2;
+      else {
         m.servingTeam = m.servingTeam === 'A' ? 'B' : 'A';
         m.serverNumber = 1;
       }
@@ -322,10 +334,7 @@ function undoPoint() {
   const m = state.currentMatch;
   if (!m || !m.history || !m.history.length) { toast('Nothing to undo'); return; }
   const prev = m.history.pop();
-  m.scoreA = prev.scoreA;
-  m.scoreB = prev.scoreB;
-  m.servingTeam = prev.servingTeam;
-  m.serverNumber = prev.serverNumber;
+  Object.assign(m, prev);
   m.completed = false;
   updateScoreDisplay();
   updateCourtView(m);
@@ -391,11 +400,6 @@ function updateCourtView(m) {
     document.getElementById('name-near-left').textContent = m.teamA[0].name;
     document.getElementById('name-near-right').textContent = m.teamA[1].name;
   }
-  const pill = document.getElementById('serve-pill');
-  if (pill) {
-    pill.textContent = 'Serve ' + m.servingTeam + m.serverNumber;
-    pill.className = 'serve-pill serving-' + m.servingTeam.toLowerCase();
-  }
 }
 
 function openMatch(matchId) {
@@ -410,5 +414,3 @@ function openMatch(matchId) {
   updateScoreDisplay();
   updateCourtView(m);
 }
-
-console.log('CourtSide core loaded');
