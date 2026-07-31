@@ -1,0 +1,7 @@
+{
+  "appId": "com.courtside.app",
+  "appName": "CourtSide",
+  "webDir": ".",
+  "server": { "androidScheme": "https" },
+  "ios": { "contentInset": "automatic" }
+}

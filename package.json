@@ -1,0 +1,12 @@
+{
+  "name": "courtside",
+  "version": "1.0.0",
+  "description": "CourtSide — Pickleball scorekeeper + round robin",
+  "private": true,
+  "scripts": {
+    "cap:init": "npx cap init \"CourtSide\" com.courtside.app --web-dir .",
+    "cap:add": "npx cap add ios",
+    "cap:sync": "npx cap sync ios",
+    "cap:open": "npx cap open ios"
+  }
+}
